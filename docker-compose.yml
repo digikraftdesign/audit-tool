@@ -1,0 +1,16 @@
+services:
+  audit:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - SQLITE_PATH=/app/storage/audits.sqlite
+      - NODE_ENV=production
+    volumes:
+      - audit-storage:/app/storage
+    restart: unless-stopped
+
+volumes:
+  audit-storage:

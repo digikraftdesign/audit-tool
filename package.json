@@ -1,0 +1,45 @@
+{
+  "name": "audit-tool",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "start:standalone": "node .next/standalone/server.js",
+    "lint": "next lint"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/digikraftdesign/audit-tool.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/digikraftdesign/audit-tool/issues"
+  },
+  "homepage": "https://github.com/digikraftdesign/audit-tool#readme",
+  "description": "DigiKraft Creative Growth Audit",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "cheerio": "^1.2.0",
+    "file-type": "^22.0.2",
+    "iron-session": "^8.0.4",
+    "jszip": "^3.10.1",
+    "next": "^15.5.24",
+    "pdf-parse": "^2.4.5",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.3.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.5.24",
+    "typescript": "^5.9.3"
+  }
+}

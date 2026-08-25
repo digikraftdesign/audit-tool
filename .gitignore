@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+config.php
+
+# Storage (SQLite, uploads)
+storage/**
+!storage/.gitkeep
+!storage/uploads/.gitkeep
+
+# Debug / OS
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+*.pem
+.vercel
+
+# TypeScript
+next-env.d.ts
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
