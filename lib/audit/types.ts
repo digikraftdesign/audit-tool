@@ -49,6 +49,11 @@ const ALL: Record<string, AuditTypeDef> = {
         "note": "Fetching the page and its stylesheets"
       },
       {
+        "id": "shot",
+        "label": "Render",
+        "note": "Rendering the page as a visitor sees it"
+      },
+      {
         "id": "content",
         "label": "Message",
         "note": "Reading the offer, the CTA and the structure"

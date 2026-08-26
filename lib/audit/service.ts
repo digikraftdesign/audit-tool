@@ -16,6 +16,7 @@ import SocialMedia from '@/lib/audit/analyzer/socialMedia';
 import DocumentFile from '@/lib/audit/analyzer/documentFile';
 import Branding from '@/lib/audit/analyzer/branding';
 import Crawler from '@/lib/audit/crawler';
+import Shot from '@/lib/audit/shot';
 import Scorer from '@/lib/audit/scorer';
 import Playbook from '@/lib/audit/playbook';
 import Types from '@/lib/audit/types';
@@ -318,6 +319,43 @@ export class Service {
           text:
             `${LandingPage.bytes(Number(page.bytes))} of HTML · ${Number(page.image_count)} images · ` +
             `${Number(page.scripts)} scripts`,
+          strong: false,
+        },
+      ];
+    }
+
+    if (step === 'shot') {
+      const page = (getArtifact(id, 'page', {}) as Record<string, unknown>) ?? {};
+      const target = String(page.final_url ?? answers.url ?? '');
+      // The crawler already cleared this URL through UrlGuard and robots.
+      const shot = await Shot.capture(id, target, this.deadline);
+      putArtifact(id, 'shot', shot);
+
+      if (!shot.ok) {
+        // Visuals are a bonus, never a reason to fail the audit.
+        return [
+          {
+            text: `Could not render the page — ${shot.error || 'renderer unavailable'}. Continuing without screenshots.`,
+            strong: false,
+          },
+        ];
+      }
+
+      const belowFold = shot.boxes.filter((b) => b.below_fold).length;
+      const ctas = shot.boxes.filter((b) => b.kind === 'cta').length;
+      return [
+        {
+          text:
+            `Rendered the page at ${shot.frames.desktop?.width ?? 0}px and on mobile · ` +
+            `${numberFormat(shot.page_height)}px tall`,
+          strong: true,
+        },
+        {
+          text:
+            `Located ${ctas} call${ctas === 1 ? '' : 's'} to action` +
+            (belowFold
+              ? ` · ${belowFold} marked element${belowFold === 1 ? '' : 's'} sit below the fold`
+              : ' · all marked elements are above the fold'),
           strong: false,
         },
       ];
@@ -966,6 +1004,7 @@ export class Service {
       tiers: Playbook.tiers(),
       recommended_tier: tier,
       metrics: result.metrics,
+      shot: getArtifact(id, 'shot', null),
       method: {
         sources: Object.values(sources),
         crawled_at: now(),

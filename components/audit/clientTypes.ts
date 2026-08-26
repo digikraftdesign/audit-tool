@@ -85,6 +85,38 @@ export interface MethodSource {
   note?: string;
 }
 
+export interface ShotBox {
+  kind: 'headline' | 'cta' | 'form' | 'nav' | 'media';
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  text: string;
+  below_fold: boolean;
+}
+
+export interface ShotFrame {
+  variant: string;
+  file: string;
+  width: number;
+  height: number;
+  bytes: number;
+}
+
+export interface ShotData {
+  ok: boolean;
+  error: string;
+  url: string;
+  captured_at: string;
+  fold_height: number;
+  page_height: number;
+  fold_ratio: number;
+  frames: Record<string, ShotFrame>;
+  boxes: ShotBox[];
+  background: string;
+}
+
 export interface AuditResult {
   type: string;
   type_name: string;
@@ -115,6 +147,7 @@ export interface AuditResult {
   >;
   recommended_tier: string;
   metrics?: Record<string, unknown>;
+  shot?: ShotData | null;
   method: {
     sources: MethodSource[];
     crawled_at: string;

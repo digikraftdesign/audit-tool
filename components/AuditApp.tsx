@@ -21,6 +21,9 @@ import {
   setParameterScore,
   apiUpload,
 } from '@/components/audit/api';
+import PageShot from '@/components/audit/diagnose/PageShot';
+import RecoveryLadder from '@/components/audit/diagnose/RecoveryLadder';
+import ScoreHero from '@/components/audit/diagnose/ScoreHero';
 import type {
   AuditPayload,
   AuditResult,
@@ -75,32 +78,6 @@ function useReducedMotion(): boolean {
     return () => mq.removeEventListener?.('change', onChange);
   }, []);
   return reduce;
-}
-
-function CountTo({
-  value,
-  reduce,
-}: {
-  value: number;
-  reduce: boolean;
-}) {
-  const [n, setN] = useState(reduce ? value : 0);
-  useEffect(() => {
-    if (reduce) {
-      setN(value);
-      return;
-    }
-    const start = performance.now();
-    let raf = 0;
-    const tick = (now: number) => {
-      const p = Math.min(1, (now - start) / 640);
-      setN(Math.round(value * (1 - Math.pow(1 - p, 3))));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [value, reduce]);
-  return <>{n}</>;
 }
 
 export default function AuditApp({ boot, types }: Props) {
@@ -888,24 +865,6 @@ export default function AuditApp({ boot, types }: Props) {
     return nodes;
   })();
 
-  const gradeBands = [
-    {
-      key: 'excellent',
-      label: '80–100 Excellent',
-      note: 'Minor optimisations only',
-    },
-    {
-      key: 'improve',
-      label: '50–79 Needs improvement',
-      note: 'Focus on the high-weight parameters',
-    },
-    {
-      key: 'critical',
-      label: '0–49 Critical',
-      note: 'Redesign or rewrite',
-    },
-  ];
-
   return (
     <>
       <div className="app" data-od-id="app-shell">
@@ -1351,348 +1310,22 @@ export default function AuditApp({ boot, types }: Props) {
           >
             {r ? (
               <div className="wrap-wide">
-                <div className="dash-head">
-                  <div>
-                    <p className="kicker" id="workspace-kicker">
-                      {(types[r.type]?.name
-                        ? types[r.type].name + ' audit · Diagnose'
-                        : 'Diagnose')}
-                    </p>
-                    <h1 data-od-id="workspace-title" id="workspace-title">
-                      {types[r.type]?.headline ||
-                        'The system as it stands.'}
-                    </h1>
-                    <p className="lede" id="workspace-lede">
-                      {subjectLabel(r)} · {r.findings.length} finding
-                      {r.findings.length === 1 ? '' : 's'} ·{' '}
-                      {r.orders.length} work order
-                      {r.orders.length === 1 ? '' : 's'} · read{' '}
-                      {(r.method.crawled_at || '').slice(0, 10)}.
-                    </p>
-                  </div>
-                  <div
-                    className="tile ring-card lift"
-                    data-od-id="score-overall"
-                  >
-                    <svg
-                      className="ring"
-                      viewBox="0 0 120 120"
-                      width={104}
-                      height={104}
-                      aria-hidden="true"
-                    >
-                      <circle
-                        cx="60"
-                        cy="60"
-                        r="46"
-                        fill="none"
-                        stroke="oklch(100% 0 0 / 0.08)"
-                        strokeWidth="10"
-                      />
-                      <circle
-                        className="ring-value"
-                        cx="60"
-                        cy="60"
-                        r="46"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="10"
-                        pathLength={100}
-                        style={
-                          {
-                            ['--ring-len' as string]: String(
-                              r.score.overall,
-                            ),
-                          } as CSSProperties
-                        }
-                      />
-                    </svg>
-                    <div>
-                      <p className="kicker" id="score-kicker">
-                        {(types[r.type]?.name || 'Audit') + ' score'}
-                      </p>
-                      <p className="num tabular">
-                        <span id="score-num">
-                          <CountTo
-                            value={r.score.overall}
-                            reduce={reduce}
-                          />
-                        </span>
-                        <small>/100</small>
-                      </p>
-                      <p
-                        className={'grade band-' + r.score.grade.band}
-                        id="score-grade"
-                      >
-                        {r.score.grade.label}
-                        {r.score.provisional ? ' · provisional' : ''}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <ScoreHero result={r} subject={subjectLabel(r)} reduce={reduce} />
 
-                <div className="kpi-row" data-od-id="diagnose-kpis">
-                  <article
-                    className="tile kpi lift"
-                    data-od-id="kpi-grade"
-                  >
-                    <p className="kicker">Grade</p>
-                    <p
-                      className={
-                        'num grade-num band-' + r.score.grade.band
-                      }
-                      id="kpi-grade-label"
-                      style={{ fontSize: 24 }}
-                    >
-                      {r.score.grade.label}
-                    </p>
-                    <p id="kpi-grade-note">{r.score.grade.note}</p>
-                  </article>
-                  <article
-                    className="tile kpi lift"
-                    data-od-id="kpi-findings"
-                  >
-                    <p className="kicker">Findings</p>
-                    <p
-                      className="num tabular"
-                      id="kpi-findings-num"
-                    >
-                      <CountTo
-                        value={r.findings.length}
-                        reduce={reduce}
-                      />
-                    </p>
-                    <p id="kpi-findings-note">
-                      Measured on {subjectLabel(r)}.
-                    </p>
-                  </article>
-                  <article className="tile kpi lift" data-od-id="kpi-high">
-                    <p className="kicker">High severity</p>
-                    <p className="num tabular" id="kpi-high-num">
-                      <CountTo
-                        value={r.score.counts.high || 0}
-                        reduce={reduce}
-                      />
-                    </p>
-                    <p>These cost the most weighted points.</p>
-                  </article>
-                  <article
-                    className="tile kpi lift"
-                    data-od-id="kpi-orders"
-                  >
-                    <p className="kicker">Work orders</p>
-                    <p className="num tabular" id="kpi-orders-num">
-                      <CountTo
-                        value={r.orders.length}
-                        reduce={reduce}
-                      />
-                    </p>
-                    <p>
-                      Mapped to DigiKraft services in the 90-day pilot.
-                    </p>
-                  </article>
-                </div>
+                <PageShot
+                  shot={r.shot}
+                  auditId={id}
+                  token={token}
+                  reduce={reduce}
+                />
 
-                <div className="diag-grid" data-od-id="diagnose-charts">
-                  <article
-                    className="tile panel lift"
-                    data-od-id="parameter-scores"
-                  >
-                    <p className="kicker">Parameter scores</p>
-                    <h3 id="param-head">
-                      {r.score.provisional
-                        ? 'Scored out of ' +
-                          r.score.scored_weight +
-                          '% so far.'
-                        : 'Each one out of 10, weighted into the total.'}
-                    </h3>
-                    <div className="params" id="param-rows">
-                      {Object.entries(r.score.parameters).map(
-                        ([pid, p]) => {
-                          const scored =
-                            p.score !== null && p.score !== undefined;
-                          const pct = scored ? p.score! / 10 : 0;
-                          const tone = !scored
-                            ? 'unscored'
-                            : p.score! >= 8
-                              ? 'good'
-                              : p.score! >= 5
-                                ? 'mid'
-                                : 'bad';
-                          const current =
-                            p.source === 'manual' && p.score !== null
-                              ? String(Math.round(p.score))
-                              : '';
-                          return (
-                            <div
-                              key={pid}
-                              className={'param-row ' + tone}
-                              data-param={pid}
-                            >
-                              <div className="param-head">
-                                <span className="param-name">
-                                  {p.label}
-                                </span>
-                                <span className="param-weight">
-                                  {p.weight}%
-                                </span>
-                              </div>
-                              <div className="track">
-                                <i data-w={pct.toFixed(2)} />
-                              </div>
-                              <div className="param-score">
-                                {scored ? (
-                                  <>
-                                    <b>{p.score}</b>
-                                    <small>/10</small>
-                                    {p.source === 'manual' ? (
-                                      <span className="tag">
-                                        set by you
-                                      </span>
-                                    ) : null}
-                                  </>
-                                ) : (
-                                  <span className="tag warn">
-                                    needs your score
-                                  </span>
-                                )}
-                              </div>
-                              <div className="param-set">
-                                <label
-                                  className="sr-label"
-                                  htmlFor={'set-' + pid}
-                                >
-                                  Set {p.label} score
-                                </label>
-                                <select
-                                  id={'set-' + pid}
-                                  data-param-set={pid}
-                                  value={current}
-                                  onChange={(e) =>
-                                    void onScoreChange(
-                                      pid,
-                                      e.target.value,
-                                    )
-                                  }
-                                >
-                                  <option value="">—</option>
-                                  {Array.from({ length: 11 }, (_, i) => (
-                                    <option key={i} value={String(i)}>
-                                      {i}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <p className="param-blurb">
-                                {p.blurb}
-                                {p.findings
-                                  ? ' · ' +
-                                    p.findings +
-                                    ' finding' +
-                                    (p.findings === 1 ? '' : 's')
-                                  : ''}
-                              </p>
-                            </div>
-                          );
-                        },
-                      )}
-                    </div>
-                    <p
-                      className="hint"
-                      id="param-hint"
-                      hidden={r.score.unscored.length === 0}
-                    >
-                      {r.score.unscored.length
-                        ? r.score.unscored.length +
-                          ' parameter' +
-                          (r.score.unscored.length === 1 ? '' : 's') +
-                          ' could not be measured from public data — set them here and the score stops being provisional. Weights are renormalised over what is scored until then.'
-                        : ''}
-                    </p>
-                  </article>
-                  <article
-                    className="tile panel lift"
-                    data-od-id="severity-heat"
-                  >
-                    <p className="kicker">Severity mix</p>
-                    <h3 id="severity-head">
-                      {(() => {
-                        const high = r.score.counts.high || 0;
-                        const med = r.score.counts.medium || 0;
-                        const low = r.score.counts.low || 0;
-                        if (high + med + low === 0)
-                          return 'Nothing raised on this surface.';
-                        return high >= med
-                          ? 'Weighted toward high severity.'
-                          : 'Mostly medium, with ' + high + ' high.';
-                      })()}
-                    </h3>
-                    <div
-                      className="sev-track"
-                      aria-hidden="true"
-                      style={{
-                        gridTemplateColumns:
-                          (r.score.counts.high || 0) +
-                          'fr ' +
-                          (r.score.counts.medium || 0) +
-                          'fr ' +
-                          (r.score.counts.low || 0) +
-                          'fr',
-                      }}
-                    >
-                      <i
-                        className="hi"
-                        id="sev-hi"
-                        hidden={(r.score.counts.high || 0) === 0}
-                      />
-                      <i
-                        className="md"
-                        id="sev-md"
-                        hidden={(r.score.counts.medium || 0) === 0}
-                      />
-                      <i
-                        className="lo"
-                        id="sev-lo"
-                        hidden={(r.score.counts.low || 0) === 0}
-                      />
-                    </div>
-                    <div className="sev-legend">
-                      <span>
-                        <b id="legend-high">
-                          {r.score.counts.high || 0}
-                        </b>{' '}
-                        high
-                      </span>
-                      <span>
-                        <b id="legend-med">
-                          {r.score.counts.medium || 0}
-                        </b>{' '}
-                        medium
-                      </span>
-                      <span>
-                        <b id="legend-low">{r.score.counts.low || 0}</b>{' '}
-                        low
-                      </span>
-                    </div>
-                    <div className="grade-scale" id="grade-scale">
-                      {gradeBands.map((b) => (
-                        <div
-                          key={b.key}
-                          className={
-                            'band-row' +
-                            (b.key === r.score.grade.band
-                              ? ' is-on'
-                              : '')
-                          }
-                        >
-                          <span className={'dot band-' + b.key} />
-                          <b>{b.label}</b>
-                          <em>{b.note}</em>
-                        </div>
-                      ))}
-                    </div>
-                  </article>
-                </div>
+                <RecoveryLadder
+                  result={r}
+                  reduce={reduce}
+                  onPick={(pid) => setFilter(pid)}
+                  onScore={(pid, value) => void onScoreChange(pid, value)}
+                />
+
 
                 <div className="toolbar">
                   <div

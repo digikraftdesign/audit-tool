@@ -29,6 +29,18 @@ export interface CrawlConfig {
   allow_private_hosts: boolean;
 }
 
+export interface ShotConfig {
+  enabled: boolean;
+  timeout: number;
+  desktop_width: number;
+  desktop_height: number;
+  mobile_width: number;
+  mobile_height: number;
+  max_full_height: number;
+  quality: number;
+  keep_hours: number;
+}
+
 export interface UploadConfig {
   max_bytes: number;
   extensions: string[];
@@ -45,6 +57,7 @@ export interface AppConfig {
   passcode: string;
   db: DbConfig;
   crawl: CrawlConfig;
+  shot: ShotConfig;
   upload: UploadConfig;
   step_budget: number;
   rate_limit: RateLimitConfig;
@@ -98,6 +111,17 @@ function buildConfig(): AppConfig {
       ),
       obey_robots: envBool('CRAWL_OBEY_ROBOTS', true),
       allow_private_hosts: envBool('CRAWL_ALLOW_PRIVATE_HOSTS', false),
+    },
+    shot: {
+      enabled: envBool('SHOT_ENABLED', true),
+      timeout: envInt('SHOT_TIMEOUT', 15),
+      desktop_width: envInt('SHOT_DESKTOP_WIDTH', 1440),
+      desktop_height: envInt('SHOT_DESKTOP_HEIGHT', 900),
+      mobile_width: envInt('SHOT_MOBILE_WIDTH', 390),
+      mobile_height: envInt('SHOT_MOBILE_HEIGHT', 844),
+      max_full_height: envInt('SHOT_MAX_FULL_HEIGHT', 6000),
+      quality: envInt('SHOT_QUALITY', 78),
+      keep_hours: envInt('SHOT_KEEP_HOURS', 720),
     },
     upload: {
       max_bytes: envInt('UPLOAD_MAX_BYTES', 20 * 1024 * 1024),

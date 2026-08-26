@@ -22,6 +22,7 @@
   "homepage": "https://github.com/digikraftdesign/audit-tool#readme",
   "description": "DigiKraft Creative Growth Audit",
   "dependencies": {
+    "@playwright/browser-chromium": "^1.62.1",
     "better-sqlite3": "^13.0.3",
     "cheerio": "^1.2.0",
     "file-type": "^22.0.2",
@@ -29,6 +30,7 @@
     "jszip": "^3.10.1",
     "next": "^15.5.24",
     "pdf-parse": "^2.4.5",
+    "playwright-core": "^1.62.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zod": "^4.4.3"
