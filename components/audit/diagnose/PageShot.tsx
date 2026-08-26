@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import type { ShotBox, ShotData } from '@/components/audit/clientTypes';
 import Metric from './Metric';
@@ -40,6 +40,13 @@ export default function PageShot({ shot, auditId, token, reduce }: Props) {
   const [active, setActive] = useState<number | null>(null);
   const [showBoxes, setShowBoxes] = useState(true);
   const [loaded, setLoaded] = useState(false);
+
+  // A cached frame can finish decoding before React attaches onLoad. Without
+  // this the fade-in would never be triggered and the panel — the one part of
+  // the audit that shows the client their own page — would sit blank.
+  const markLoaded = useCallback((node: HTMLImageElement | null) => {
+    if (node?.complete && node.naturalWidth > 0) setLoaded(true);
+  }, []);
 
   const frames = shot?.frames ?? {};
   const available = useMemo(
@@ -157,6 +164,7 @@ export default function PageShot({ shot, auditId, token, reduce }: Props) {
         <div className="shot-canvas">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
+            ref={markLoaded}
             src={src}
             alt={`${DEVICE_LABEL[device]} render of ${shot.url}`}
             width={frame?.width}
