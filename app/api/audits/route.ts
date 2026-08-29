@@ -7,7 +7,7 @@ import {
 } from '@/lib/auth';
 import { config } from '@/lib/config';
 import { rateOk } from '@/lib/db';
-import Service from '@/lib/audit/service';
+import Service, { AuditValidationError } from '@/lib/audit/service';
 import { createLogger } from '@/lib/logger';
 import { clientIp } from '@/lib/util';
 
@@ -46,7 +46,12 @@ export async function POST(req: Request) {
     });
     return jsonOk(created);
   } catch (e) {
-    log.error('response_error', e instanceof Error ? e : new Error(String(e)));
-    return jsonFail(e instanceof Error ? e.message : String(e), 500);
+    const message = e instanceof Error ? e.message : String(e);
+    if (e instanceof AuditValidationError) {
+      log.warn('rejected', { error: message });
+      return jsonFail(message, 400);
+    }
+    log.error('response_error', e instanceof Error ? e : new Error(message));
+    return jsonFail(message, 500);
   }
 }

@@ -32,6 +32,14 @@ import { token, now, clientIp, storagePath } from '@/lib/util';
 export type AuditRow = Record<string, unknown>;
 export type LogLine = { text: string; strong: boolean };
 
+/** User/input problems — map to HTTP 400, not 500. */
+export class AuditValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuditValidationError';
+  }
+}
+
 const serviceLog = createLogger('audit.service');
 
 function mbSubstr(s: string, start: number, length?: number): string {
@@ -145,13 +153,13 @@ export class Service {
 
     if (!Types.exists(type)) {
       log.warn('rejected', { reason: 'unknown_type' });
-      throw new Error('Choose which audit to run.');
+      throw new AuditValidationError('Choose which audit to run.');
     }
 
     const company = String(input.company ?? '').trim();
     if (company === '') {
       log.warn('rejected', { reason: 'missing_company' });
-      throw new Error('Add a company name before we scan.');
+      throw new AuditValidationError('Add a company name before we scan.');
     }
 
     const answers: Record<string, unknown> = {};
@@ -165,7 +173,8 @@ export class Service {
       if ((field.kind ?? '') === 'url' && typeof val === 'string' && val !== '') {
         const check = await UrlGuard.check(val, allowPrivate);
         if (!check.ok) {
-          throw new Error(`${field.label}: ${check.error}.`);
+          log.warn('rejected', { reason: 'url_check', field: name, error: check.error });
+          throw new AuditValidationError(`${field.label}: ${check.error}.`);
         }
         val = check.normalised;
       }
@@ -174,7 +183,7 @@ export class Service {
         (field.kind ?? '') !== 'file' &&
         (val === '' || val === null || val === undefined)
       ) {
-        throw new Error(
+        throw new AuditValidationError(
           `${field.label} is required for a ${mbLower(Types.get(type).name)} audit.`,
         );
       }
@@ -188,11 +197,11 @@ export class Service {
       if (uploadId !== '') {
         upload = Service.findUpload(uploadId);
         if (!upload) {
-          throw new Error('That upload has expired. Choose the file again.');
+          throw new AuditValidationError('That upload has expired. Choose the file again.');
         }
         answers.upload_id = uploadId;
       } else if (String(answers.url ?? '') === '') {
-        throw new Error('Upload a document or paste a link to one.');
+        throw new AuditValidationError('Upload a document or paste a link to one.');
       }
     }
     if (type === Types.SOCIAL) {
@@ -203,7 +212,7 @@ export class Service {
         }
       }
       if (!any) {
-        throw new Error('Add at least one social profile URL.');
+        throw new AuditValidationError('Add at least one social profile URL.');
       }
     }
 
