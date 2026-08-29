@@ -34,6 +34,7 @@ See [`.env.example`](.env.example). Important keys:
 |---|---|
 | `PASSCODE` | Optional shared gate (empty = open) |
 | `SESSION_SECRET` | Cookie secret, min 32 chars (required in production) |
+| `APP_URL` | Public site URL (Hostinger / reverse proxy same-origin checks) |
 | `SQLITE_PATH` | Absolute SQLite path; empty = auto `storage/audits-*.sqlite` |
 | `STEP_BUDGET` | Seconds per scan step (default 20) |
 | `LANDING_KICKER` | Hero kicker line |
