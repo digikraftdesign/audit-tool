@@ -1,4 +1,11 @@
-import Database from 'better-sqlite3';
+/**
+ * SQLite access via Node's built-in `node:sqlite` (DatabaseSync).
+ * No native npm addon — works on Hostinger and other hosts that cannot
+ * compile better-sqlite3 (old system Python / missing build tools).
+ *
+ * Requires Node.js 22.13+ (Hostinger ships 22.18).
+ */
+import { DatabaseSync } from 'node:sqlite';
 import fs from 'fs';
 import path from 'path';
 import { gunzipSync, gzipSync } from 'zlib';
@@ -8,10 +15,15 @@ import { defaultSqlitePath, now, storagePath } from '@/lib/util';
 type SqlValue = string | number | bigint | Buffer | null;
 type Row = Record<string, unknown>;
 
-let db: Database.Database | null = null;
+export type RunResult = {
+  changes: number | bigint;
+  lastInsertRowid: number | bigint;
+};
+
+let db: DatabaseSync | null = null;
 let driverName: 'sqlite' | 'mysql' = 'sqlite';
 
-function install(database: Database.Database): void {
+function install(database: DatabaseSync): void {
   const text = 'TEXT';
   const vc = (n: number) => `VARCHAR(${n})`;
 
@@ -85,7 +97,7 @@ function install(database: Database.Database): void {
   }
 }
 
-export function getDb(): Database.Database {
+export function getDb(): DatabaseSync {
   if (db) return db;
 
   const cfg = config('db') as {
@@ -109,9 +121,9 @@ export function getDb(): Database.Database {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  const database = new Database(sqlitePath);
-  database.pragma('journal_mode = WAL');
-  database.pragma('busy_timeout = 5000');
+  const database = new DatabaseSync(sqlitePath, { timeout: 5000 });
+  database.exec('PRAGMA journal_mode = WAL');
+  database.exec('PRAGMA busy_timeout = 5000');
   driverName = 'sqlite';
   install(database);
   db = database;
@@ -123,8 +135,8 @@ export function driver(): string {
   return driverName;
 }
 
-export function run(sql: string, args: SqlValue[] = []): Database.RunResult {
-  return getDb().prepare(sql).run(...args);
+export function run(sql: string, args: SqlValue[] = []): RunResult {
+  return getDb().prepare(sql).run(...args) as RunResult;
 }
 
 export function one<T extends Row = Row>(sql: string, args: SqlValue[] = []): T | null {
