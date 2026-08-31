@@ -994,10 +994,9 @@ export default function AuditApp({ boot, types }: Props) {
               </p>
               <h1 data-od-id="landing-title">Creative Growth Audit</h1>
               <p className="lede" data-od-id="landing-lede">
-                This is not a portfolio walkthrough. Pick one surface, and we
-                read the real thing — the page, the profiles, the file, the
-                identity — then turn the gaps into DigiKraft work. Every finding
-                comes back with the evidence it was measured from.
+                Pick one surface. We read the real page, profiles, file, or
+                identity — then turn the gaps into DigiKraft work, with the
+                evidence attached.
               </p>
 
               <p className="kicker choose-label" data-od-id="choose-label">

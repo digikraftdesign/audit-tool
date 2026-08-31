@@ -2,6 +2,9 @@
   "name": "audit-tool",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -23,7 +26,6 @@
   "description": "DigiKraft Creative Growth Audit",
   "dependencies": {
     "@playwright/browser-chromium": "^1.62.1",
-    "better-sqlite3": "^13.0.3",
     "cheerio": "^1.2.0",
     "file-type": "^22.0.2",
     "iron-session": "^8.0.4",
@@ -36,7 +38,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.3.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",

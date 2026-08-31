@@ -6,9 +6,13 @@ The original PHP app is preserved under [`legacy/`](legacy/).
 
 ## Requirements
 
-- Node.js **20+**
+- Node.js **22.13+** (uses built-in `node:sqlite`; Hostinger Node 22 is fine)
 - Outbound HTTPS (the server fetches audited URLs)
 - Writable `storage/` directory (SQLite + uploads)
+
+> **Hostinger / shared Node hosts:** do not use packages that compile with `node-gyp`
+> (e.g. `better-sqlite3`). This app uses Node's built-in SQLite so `npm install`
+> does not need Python or a C++ toolchain.
 
 ## Quick start (local)
 
@@ -30,6 +34,7 @@ See [`.env.example`](.env.example). Important keys:
 |---|---|
 | `PASSCODE` | Optional shared gate (empty = open) |
 | `SESSION_SECRET` | Cookie secret, min 32 chars (required in production) |
+| `APP_URL` | Public site URL (Hostinger / reverse proxy same-origin checks) |
 | `SQLITE_PATH` | Absolute SQLite path; empty = auto `storage/audits-*.sqlite` |
 | `STEP_BUDGET` | Seconds per scan step (default 20) |
 | `LANDING_KICKER` | Hero kicker line |

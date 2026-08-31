@@ -61,22 +61,75 @@ export function jsonFail(
 
 /** Same-origin guard for mutating requests (mirrors api.php). */
 export function assertSameOrigin(req: Request): Response | null {
-  const site = req.headers.get('sec-fetch-site') ?? '';
-  if (site && !['same-origin', 'same-site', 'none'].includes(site)) {
-    return jsonFail('Cross-origin request refused', 403);
-  }
   const origin = req.headers.get('origin') ?? '';
-  if (origin) {
-    try {
-      const host = new URL(req.url).host;
-      if (host && !origin.toLowerCase().includes(host.toLowerCase())) {
-        return jsonFail('Cross-origin request refused', 403);
-      }
-    } catch {
+  // Non-browser clients and same-origin GET navigations often omit Origin.
+  if (!origin) {
+    const site = req.headers.get('sec-fetch-site') ?? '';
+    if (site && !['same-origin', 'same-site', 'none'].includes(site)) {
       return jsonFail('Cross-origin request refused', 403);
     }
+    return null;
   }
-  return null;
+
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host.toLowerCase();
+  } catch {
+    return jsonFail('Cross-origin request refused', 403);
+  }
+
+  const candidates = collectRequestHosts(req);
+  if (hostMatches(originHost, candidates)) {
+    return null;
+  }
+
+  return jsonFail('Cross-origin request refused', 403);
+}
+
+function collectRequestHosts(req: Request): Set<string> {
+  const hosts = new Set<string>();
+
+  const add = (raw: string | null | undefined) => {
+    if (!raw) return;
+    const first = raw.split(',')[0]?.trim();
+    if (!first) return;
+    hosts.add(first.toLowerCase());
+    // host:port without scheme
+    try {
+      hosts.add(new URL(first.includes('://') ? first : `https://${first}`).host.toLowerCase());
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // What the browser / reverse proxy believe the public host is.
+  add(req.headers.get('x-forwarded-host'));
+  add(req.headers.get('host'));
+  add(process.env.APP_URL);
+  add(process.env.NEXT_PUBLIC_APP_URL);
+
+  for (const entry of (process.env.ALLOWED_ORIGINS || '').split(',')) {
+    add(entry.trim());
+  }
+
+  // Fallback only — behind Hostinger this is often localhost and must not
+  // be the sole check.
+  try {
+    add(new URL(req.url).host);
+  } catch {
+    /* ignore */
+  }
+
+  return hosts;
+}
+
+function hostMatches(originHost: string, candidates: Set<string>): boolean {
+  const strip = (h: string) => h.replace(/:(80|443)$/, '');
+  const want = strip(originHost);
+  for (const c of candidates) {
+    if (strip(c) === want) return true;
+  }
+  return false;
 }
 
 export async function readJsonBody(req: Request): Promise<Record<string, unknown>> {

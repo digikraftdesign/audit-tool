@@ -27,10 +27,21 @@ import { Html } from '@/lib/html';
 import { Http } from '@/lib/http/http';
 import UrlGuard from '@/lib/http/urlGuard';
 import { config } from '@/lib/config';
+import { createLogger, type Logger } from '@/lib/logger';
 import { token, now, clientIp, storagePath } from '@/lib/util';
 
 export type AuditRow = Record<string, unknown>;
 export type LogLine = { text: string; strong: boolean };
+
+/** User/input problems — map to HTTP 400, not 500. */
+export class AuditValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuditValidationError';
+  }
+}
+
+const serviceLog = createLogger('audit.service');
 
 function mbSubstr(s: string, start: number, length?: number): string {
   const chars = [...s];
@@ -105,11 +116,20 @@ function safeUrlPath(url: string): string {
 export class Service {
   private http: Http;
   private deadline: number;
+  /** Per-request step logger; refreshed at the start of each step(). */
+  private stepLog: Logger = serviceLog;
 
   constructor() {
     const crawl = (config('crawl', {}) as Record<string, unknown>) ?? {};
     this.http = new Http(crawl as ConstructorParameters<typeof Http>[0]);
     this.deadline = Date.now() / 1000 + Number(config('step_budget', 20));
+  }
+
+  private stepLabel(type: string, step: string): string {
+    if (step === 'finalize') return 'Score';
+    if (!Types.exists(type)) return step;
+    const found = Types.get(type).steps.find((s) => s.id === step);
+    return found?.label || step;
   }
 
   /** The steps the browser should walk for this audit type. */
@@ -129,13 +149,18 @@ export class Service {
     steps: string[];
   }> {
     const type = String(input.type ?? '');
+    const log = serviceLog.child({ type, action: 'create' });
+    log.info('start');
+
     if (!Types.exists(type)) {
-      throw new Error('Choose which audit to run.');
+      log.warn('rejected', { reason: 'unknown_type' });
+      throw new AuditValidationError('Choose which audit to run.');
     }
 
     const company = String(input.company ?? '').trim();
     if (company === '') {
-      throw new Error('Add a company name before we scan.');
+      log.warn('rejected', { reason: 'missing_company' });
+      throw new AuditValidationError('Add a company name before we scan.');
     }
 
     const answers: Record<string, unknown> = {};
@@ -149,7 +174,8 @@ export class Service {
       if ((field.kind ?? '') === 'url' && typeof val === 'string' && val !== '') {
         const check = await UrlGuard.check(val, allowPrivate);
         if (!check.ok) {
-          throw new Error(`${field.label}: ${check.error}.`);
+          log.warn('rejected', { reason: 'url_check', field: name, error: check.error });
+          throw new AuditValidationError(`${field.label}: ${check.error}.`);
         }
         val = check.normalised;
       }
@@ -158,7 +184,7 @@ export class Service {
         (field.kind ?? '') !== 'file' &&
         (val === '' || val === null || val === undefined)
       ) {
-        throw new Error(
+        throw new AuditValidationError(
           `${field.label} is required for a ${mbLower(Types.get(type).name)} audit.`,
         );
       }
@@ -172,11 +198,11 @@ export class Service {
       if (uploadId !== '') {
         upload = Service.findUpload(uploadId);
         if (!upload) {
-          throw new Error('That upload has expired. Choose the file again.');
+          throw new AuditValidationError('That upload has expired. Choose the file again.');
         }
         answers.upload_id = uploadId;
       } else if (String(answers.url ?? '') === '') {
-        throw new Error('Upload a document or paste a link to one.');
+        throw new AuditValidationError('Upload a document or paste a link to one.');
       }
     }
     if (type === Types.SOCIAL) {
@@ -187,7 +213,7 @@ export class Service {
         }
       }
       if (!any) {
-        throw new Error('Add at least one social profile URL.');
+        throw new AuditValidationError('Add at least one social profile URL.');
       }
     }
 
@@ -219,7 +245,15 @@ export class Service {
     );
     putArtifact(id, 'log', []);
 
-    return { id, token: tok, type, steps: Service.steps(type) };
+    const steps = Service.steps(type);
+    log.info('created', {
+      auditId: id,
+      company: mbSubstr(company, 0, 80),
+      site: mbSubstr(site, 0, 120),
+      steps,
+    });
+
+    return { id, token: tok, type, steps };
   }
 
   // --------------------------------------------------------------------- step
@@ -229,8 +263,23 @@ export class Service {
     const type = String(audit.audit_type);
     const answers = parseJsonObject(audit.answers);
     const steps = Service.steps(type);
+    const label = this.stepLabel(type, step);
+    const started = Date.now();
+
+    this.stepLog = createLogger('audit.step', {
+      auditId: id,
+      type,
+      step,
+      label,
+      company: String(audit.company ?? ''),
+    });
+    this.stepLog.info('start', {
+      index: steps.indexOf(step) + 1,
+      of: steps.length,
+    });
 
     if (!steps.includes(step)) {
+      this.stepLog.warn('rejected', { reason: 'unknown_step' });
       throw new Error('Unknown step for this audit.');
     }
 
@@ -242,6 +291,10 @@ export class Service {
           : await this.runStep(audit, type, step, answers);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      this.stepLog.error('failed', {
+        ms: Date.now() - started,
+        err: e instanceof Error ? e : new Error(message),
+      });
       run('UPDATE dk_audits SET status = ?, error = ?, updated_at = ? WHERE id = ?', [
         'failed',
         message,
@@ -250,6 +303,13 @@ export class Service {
       ]);
       throw e;
     }
+
+    // Always surface a clear step banner in the scan UI log.
+    const banner: LogLine = {
+      text: step === 'finalize' ? 'Scoring the parameters' : `Pass · ${label}`,
+      strong: true,
+    };
+    log = [banner, ...log];
 
     const stored = (getArtifact(id, 'log', []) as LogLine[]) ?? [];
     const nextStored = Array.isArray(stored) ? [...stored] : [];
@@ -265,6 +325,13 @@ export class Service {
       now(),
       id,
     ]);
+
+    this.stepLog.info('done', {
+      ms: Date.now() - started,
+      next,
+      done: next === null,
+      lines: log.length,
+    });
 
     return { step, next, done: next === null, log };
   }
@@ -301,13 +368,24 @@ export class Service {
 
     if (step === 'fetch') {
       const url = String(answers.url);
+      this.stepLog.info('fetch.begin', { url });
       const page = await crawler.fetchOne(url, 'landing');
       if (!page.ok) {
+        this.stepLog.warn('fetch.failed', {
+          url,
+          error: String(page.error || 'no response'),
+        });
         throw new Error(
           `Could not read ${url} — ${(page.error as string) || 'no response'}.`,
         );
       }
       putArtifact(id, 'page', page);
+      this.stepLog.info('fetch.ok', {
+        finalUrl: String(page.final_url),
+        status: Number(page.status),
+        bytes: Number(page.bytes),
+        ttfb: Number(page.ttfb),
+      });
       return [
         {
           text:
@@ -362,6 +440,7 @@ export class Service {
     }
 
     if (step === 'content') {
+      this.stepLog.info('content.begin');
       const page = (getArtifact(id, 'page', {}) as Record<string, unknown>) ?? {};
       let css = String(page.inline_css ?? '');
       const sheets: Record<string, string> = {};
@@ -381,6 +460,11 @@ export class Service {
       }
       putArtifact(id, 'css', css);
       const h1 = (page.h1 as string[]) ?? [];
+      this.stepLog.info('content.ok', {
+        stylesheets: read,
+        cssChars: css.length,
+        h1: String(h1[0] ?? '').slice(0, 80),
+      });
       return [
         {
           text:
@@ -401,9 +485,16 @@ export class Service {
 
     if (step === 'tech') {
       // A real mobile fetch, not an assumption about one.
+      this.stepLog.info('tech.begin');
       const page = (getArtifact(id, 'page', {}) as Record<string, unknown>) ?? {};
       const mobile = await this.fetchAsMobile(String(page.final_url));
       putArtifact(id, 'mobile', mobile);
+      this.stepLog.info('tech.ok', {
+        ok: Boolean(mobile.ok),
+        bytes: Number(mobile.bytes || 0),
+        viewport: Boolean(mobile.viewport),
+        error: mobile.ok ? undefined : String(mobile.error || ''),
+      });
       return [
         {
           text: mobile.ok
@@ -417,6 +508,7 @@ export class Service {
 
     if (step === 'trust') {
       // Do the policy and grievance links actually resolve?
+      this.stepLog.info('trust.begin');
       const page = (getArtifact(id, 'page', {}) as Record<string, unknown>) ?? {};
       const links: Record<string, string> = {};
       for (const l of (page.links as Array<Record<string, unknown>>) ?? []) {
@@ -436,6 +528,11 @@ export class Service {
       putArtifact(id, 'policy', { checked: Object.keys(links).length, dead });
       const trust = (page.trust as Record<string, unknown>) ?? {};
       const trustKeys = Object.keys(trust);
+      this.stepLog.info('trust.ok', {
+        markers: trustKeys.length,
+        policyLinks: Object.keys(links).length,
+        dead: dead.length,
+      });
       return [
         {
           text: trustKeys.length
@@ -468,11 +565,13 @@ export class Service {
     const nets = ['instagram', 'facebook', 'linkedin', 'youtube', 'x'];
 
     if (step === 'reach') {
+      this.stepLog.info('reach.begin');
       const profiles: Record<string, Record<string, unknown>> = {};
       for (const net of nets) {
         const url = String(answers[net] ?? '').trim();
         if (url === '') continue;
         if (Date.now() / 1000 > this.deadline) {
+          this.stepLog.warn('reach.budget', { net, url });
           profiles[net] = {
             url,
             state: 'unchecked',
@@ -481,6 +580,7 @@ export class Service {
           };
           continue;
         }
+        this.stepLog.debug('reach.check', { net, url });
         profiles[net] = await this.checkProfile(net, url);
       }
       putArtifact(id, 'profiles', profiles);
@@ -489,6 +589,11 @@ export class Service {
         ['ok', 'thin'].includes(String(p.state)),
       ).length;
       const blocked = Object.values(profiles).filter((p) => p.state === 'blocked').length;
+      this.stepLog.info('reach.ok', {
+        profiles: Object.keys(profiles).length,
+        readable: ok,
+        blocked,
+      });
       return [
         {
           text:
@@ -500,6 +605,7 @@ export class Service {
     }
 
     if (step === 'profile') {
+      this.stepLog.info('profile.begin');
       const profiles =
         (getArtifact(id, 'profiles', {}) as Record<string, Record<string, unknown>>) ?? {};
       const lines: LogLine[] = [];
@@ -520,12 +626,14 @@ export class Service {
         }
         lines.push({ text: `${ucfirst(String(net))}: ${bits.join(' · ')}`, strong: false });
       }
+      this.stepLog.info('profile.ok', { lines: lines.length });
       return lines.length
         ? lines
         : [{ text: 'No profile data could be read', strong: false }];
     }
 
     if (step === 'cadence') {
+      this.stepLog.info('cadence.begin');
       const profiles =
         (getArtifact(id, 'profiles', {}) as Record<string, Record<string, unknown>>) ?? {};
       let found = 0;
@@ -539,6 +647,7 @@ export class Service {
         }
       }
       putArtifact(id, 'profiles', profiles);
+      this.stepLog.info('cadence.ok', { posts: found });
       return [
         {
           text:
@@ -551,6 +660,7 @@ export class Service {
     }
 
     if (step === 'signals') {
+      this.stepLog.info('signals.begin');
       const profiles =
         (getArtifact(id, 'profiles', {}) as Record<string, Record<string, unknown>>) ?? {};
       let auto = 0;
@@ -562,6 +672,7 @@ export class Service {
           auto++;
         }
       }
+      this.stepLog.info('signals.ok', { measurable: auto });
       return [
         {
           text: `${auto} measurable signal${auto === 1 ? '' : 's'} collected`,
@@ -584,12 +695,18 @@ export class Service {
 
     if (step === 'ingest') {
       const uploadId = String(answers.upload_id ?? '').trim();
+      this.stepLog.info('ingest.begin', {
+        source: uploadId !== '' ? 'upload' : 'url',
+        uploadId: uploadId || undefined,
+        url: uploadId === '' ? String(answers.url ?? '') : undefined,
+      });
       let bytes: Buffer;
       let file: Record<string, unknown>;
 
       if (uploadId !== '') {
         const upload = Service.findUpload(uploadId);
         if (!upload || !fs.existsSync(upload.path)) {
+          this.stepLog.warn('ingest.missing_upload', { uploadId });
           throw new Error('The uploaded file is no longer on the server. Upload it again.');
         }
         bytes = fs.readFileSync(upload.path);
@@ -604,6 +721,10 @@ export class Service {
         const url = String(answers.url);
         const res = await this.http.get(url);
         if (!res.ok) {
+          this.stepLog.warn('ingest.download_failed', {
+            url,
+            error: String(res.error || 'no response'),
+          });
           throw new Error(
             `Could not download ${url} — ${res.error || 'no response'}.`,
           );
@@ -627,6 +748,12 @@ export class Service {
 
       putArtifact(id, 'file', file);
       putArtifact(id, 'raw', bytes.toString('base64'));
+      this.stepLog.info('ingest.ok', {
+        name: String(file.name),
+        bytes: Number(file.bytes),
+        source: String(file.source),
+        mime: String(file.mime ?? ''),
+      });
       return [
         {
           text:
@@ -638,21 +765,32 @@ export class Service {
     }
 
     if (step === 'text') {
+      this.stepLog.info('text.begin');
       const file = (getArtifact(id, 'file', {}) as Record<string, unknown>) ?? {};
       const rawB64 = String(getArtifact(id, 'raw', '') ?? '');
       let raw: Buffer;
       try {
         raw = Buffer.from(rawB64, 'base64');
       } catch {
+        this.stepLog.error('text.raw_decode_failed');
         throw new Error('The staged file could not be read back.');
       }
       if (!raw.length) {
+        this.stepLog.error('text.raw_empty');
         throw new Error('The staged file could not be read back.');
       }
       const doc = await DocText.read(raw, String(file.name), String(file.mime ?? ''));
       putArtifact(id, 'doc', doc);
       run('DELETE FROM dk_artifacts WHERE audit_id = ? AND akey = ?', [id, 'raw']);
 
+      this.stepLog.info('text.ok', {
+        ok: Boolean(doc.ok),
+        kind: String(doc.kind ?? ''),
+        words: Number(doc.words || 0),
+        pages: doc.pages ?? null,
+        headings: (doc.headings as unknown[] | undefined)?.length ?? 0,
+        error: doc.ok ? undefined : String(doc.error || ''),
+      });
       return [
         {
           text: doc.ok
@@ -666,10 +804,17 @@ export class Service {
     }
 
     if (step === 'style') {
+      this.stepLog.info('style.begin');
       const doc = (getArtifact(id, 'doc', {}) as Record<string, unknown>) ?? {};
       const fonts = (doc.fonts as unknown[]) ?? [];
       const sizes = (doc.sizes as unknown[]) ?? [];
       const colors = (doc.colors as unknown[]) ?? [];
+      this.stepLog.info('style.ok', {
+        fonts: fonts.length,
+        sizes: sizes.length,
+        colors: colors.length,
+        producer: String(doc.producer || doc.creator || ''),
+      });
       return [
         {
           text:
@@ -687,9 +832,15 @@ export class Service {
     }
 
     if (step === 'review') {
+      this.stepLog.info('review.begin');
       const doc = (getArtifact(id, 'doc', {}) as Record<string, unknown>) ?? {};
       const r = DocumentFile.readability(String(doc.text ?? ''));
       putArtifact(id, 'readability', r);
+      this.stepLog.info('review.ok', {
+        sentences: Number(r.sentences || 0),
+        grade: r.grade ?? null,
+        avgSentence: r.avg_sentence ?? null,
+      });
       return [
         {
           text:
@@ -716,8 +867,13 @@ export class Service {
 
     if (step === 'site') {
       const url = String(answers.url);
+      this.stepLog.info('site.begin', { url });
       const home = await crawler.fetchOne(url, 'home');
       if (!home.ok) {
+        this.stepLog.warn('site.failed', {
+          url,
+          error: String(home.error || 'no response'),
+        });
         throw new Error(
           `Could not read ${url} — ${(home.error as string) || 'no response'}.`,
         );
@@ -727,6 +883,11 @@ export class Service {
       putArtifact(id, 'targets', targets);
       const host = safeUrlHost(String(home.final_url));
       const targetKeys = Object.keys(targets);
+      this.stepLog.info('site.ok', {
+        host,
+        status: Number(home.status),
+        targets: targetKeys.length,
+      });
       return [
         {
           text: `Connected to ${host} · HTTP ${Number(home.status)}`,
@@ -748,6 +909,7 @@ export class Service {
     }
 
     if (step === 'identity') {
+      this.stepLog.info('identity.begin');
       let pages = (getArtifact(id, 'pages', []) as Array<Record<string, unknown>>) ?? [];
       const targets =
         (getArtifact(id, 'targets', {}) as Record<string, string>) ?? {};
@@ -794,6 +956,12 @@ export class Service {
           logos[l] = true;
         }
       }
+      this.stepLog.info('identity.ok', {
+        pages: pages.length,
+        logos: Object.keys(logos).length,
+        cssChars: css.length,
+        favicon: faviconFound,
+      });
       return [
         {
           text:
@@ -806,9 +974,11 @@ export class Service {
     }
 
     if (step === 'market') {
+      this.stepLog.info('market.begin');
       const urls = await Service.competitorUrls(String(answers.competitors ?? ''));
       if (!urls.length) {
         putArtifact(id, 'competitors', []);
+        this.stepLog.info('market.skip', { reason: 'no_competitors' });
         return [
           {
             text: 'No competitors supplied — uniqueness is checked against category clichés only',
@@ -838,6 +1008,11 @@ export class Service {
         });
       }
       putArtifact(id, 'competitors', rivals);
+      this.stepLog.info('market.ok', {
+        requested: urls.length,
+        compared: rivals.length,
+        hosts: rivals.map((r) => String(r.host)),
+      });
       return [
         {
           text:
@@ -849,11 +1024,13 @@ export class Service {
     }
 
     if (step === 'voice') {
+      this.stepLog.info('voice.begin');
       const pages = (getArtifact(id, 'pages', []) as Array<Record<string, unknown>>) ?? [];
       let words = 0;
       for (const p of pages) {
         words += Math.round(mbLen(String(p.text ?? '')) / 5.5);
       }
+      this.stepLog.info('voice.ok', { pages: pages.length, words });
       return [
         {
           text: `Read roughly ${numberFormat(words)} words of copy for tone and mission`,
@@ -873,6 +1050,7 @@ export class Service {
     answers: Record<string, unknown>,
   ): Promise<LogLine[]> {
     const id = String(audit.id);
+    this.stepLog.info('finalize.begin');
 
     let result: {
       findings: Finding[];
@@ -1028,6 +1206,13 @@ export class Service {
     }
 
     const unscored = scoreResult.unscored.length;
+    this.stepLog.info('finalize.ok', {
+      findings: findings.length,
+      score: scoreResult.overall,
+      grade: scoreResult.grade.label,
+      unscored,
+      tier,
+    });
     return [
       {
         text:

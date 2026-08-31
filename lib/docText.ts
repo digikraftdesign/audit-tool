@@ -1,8 +1,11 @@
 import * as cheerio from 'cheerio';
 import JSZip from 'jszip';
-import { PDFParse } from 'pdf-parse';
+import { installPdfPolyfills } from '@/lib/pdfPolyfill';
 import { Html } from '@/lib/html';
 import Pdf from '@/lib/pdf';
+
+// Ensure browser stubs exist before pdf-parse → pdfjs-dist is evaluated.
+installPdfPolyfills();
 
 export interface DocRun {
   text: string;
@@ -200,6 +203,8 @@ async function readPdf(bytes: Buffer): Promise<DocTextResult> {
   if (langM) out.lang = langM[1].trim();
 
   try {
+    installPdfPolyfills();
+    const { PDFParse } = await import('pdf-parse');
     const parser = new PDFParse({ data: new Uint8Array(bytes) });
     const textResult = await parser.getText();
     await parser.destroy();
